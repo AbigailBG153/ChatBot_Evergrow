@@ -140,7 +140,4 @@ async def chatbot(request: Request):
     # Generar una respuesta más natural e informal
     return {"reply": generate_response(question, meteomatics_data)}
 
-# Ejecutar el servidor de FastAPI
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
