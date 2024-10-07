@@ -1,12 +1,24 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
 import requests
-from datetime import datetime, timedelta
 import re
 
+
+# Crear instancia de FastAPI
 app = FastAPI()
 
 # Diccionario para almacenar nombres y ubicaciones de los usuarios
 user_data = {}
+
+# Modelo Pydantic para validar las solicitudes
+class ChatRequest(BaseModel):
+    user_id: str
+    question: str = ""
+    name: str = None
+    location_choice: str = None
+    city: str = None
+    lat: float = None
+    lon: float = None
 
 # Función para normalizar texto y manejar errores en la escritura (quitar tildes, mayúsculas)
 def normalize_text(text: str) -> str:
@@ -38,7 +50,11 @@ def get_meteomatics_data(lat: float, lon: float) -> dict:
     PASSWORD = '6DEsh48vL8'
     url = f"https://{USERNAME}:{PASSWORD}@api.meteomatics.com/now/t_2m:C,t_max_2m_24h:C,t_min_2m_24h:C,precip_1h:mm,precip_24h:mm,wind_speed_10m:ms,wind_dir_10m:d,wind_gusts_10m_1h:ms,wind_gusts_10m_24h:ms,msl_pressure:hPa,weather_symbol_1h:idx,weather_symbol_24h:idx,uv:idx,sunrise:sql,sunset:sql/{lat},{lon}/json"
     response = requests.get(url)
-    return response.json()
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise HTTPException(status_code=500, detail="Error al obtener los datos meteorológicos")
 
 # Función para comenzar la conversación con una presentación
 def start_conversation(user_id: str):
@@ -92,14 +108,14 @@ def handle_location_choice(user_id: str, choice: str):
 
 # Endpoint principal para el chatbot interactivo
 @app.post("/chatbot")
-async def chatbot(request: Request):
-    data = await request.json()
-    user_id = data.get("user_id")  # Se espera un user_id para identificar al usuario
-    question = data.get("question", "")  # Pregunta del usuario
-    name = data.get("name", "")  # Nombre del usuario (si lo proporciona)
-    location_choice = data.get("location_choice", "")  # Elección de ubicación actual u otra
-    city = data.get("city", "")  # Ciudad o lugar proporcionado por el usuario
-    lat, lon = None, None
+async def chatbot(chat_request: ChatRequest):
+    user_id = chat_request.user_id
+    question = chat_request.question
+    name = chat_request.name
+    location_choice = chat_request.location_choice
+    city = chat_request.city
+    lat = chat_request.lat
+    lon = chat_request.lon
 
     # Comenzar la conversación y preguntar el nombre
     if not user_data.get(user_id):
@@ -130,14 +146,8 @@ async def chatbot(request: Request):
         lon = user_data[user_id]["coordinates"]["lon"]
 
     # Obtener datos de la ubicación actual (si no se eligió otra)
-    if user_data[user_id]["location"] == "ubicación actual":
-        lat = data.get("lat")
-        lon = data.get("lon")
+    if user_data[user_id]["location"] == "ubicación actual" and lat and lon:
+        meteomatics_data = get_meteomatics_data(lat, lon)
+        return {"reply": generate_response(question, meteomatics_data)}
 
-    # Obtener datos meteorológicos actuales
-    meteomatics_data = get_meteomatics_data(lat, lon)
-
-    # Generar una respuesta más natural e informal
-    return {"reply": generate_response(question, meteomatics_data)}
-
-
+    return {"reply": "No pude procesar tu solicitud. Intenta de nuevo."}
